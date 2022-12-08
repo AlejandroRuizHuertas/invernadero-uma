@@ -1,0 +1,112 @@
+version: '3.5'
+
+networks:
+    httpnet:
+    databasenet:
+    queuenet:
+        driver: bridge
+        ipam:
+            driver: default
+            config:
+                - subnet: 172.5.0.0/24
+
+services:
+    httpapi:
+        #        depends_on:
+        #            - mongodb
+        container_name: httpapi
+        restart: unless-stopped
+        build: ./api
+        volumes:
+            - ./api:/app
+        working_dir: /app
+        environment:
+            - FLASK_APP=api.py
+            - APP_KEY=lkksdf8
+            - APP_ALGORITHM=HS256
+            - DATABASE_URL=mongodb://userAdmin:userPassword@mongodb:27017/?authMechanism=DEFAULT
+            - DATABASE_NAME=test_database
+            - APP_KEY_INVERNADERO=f8cd58e96d7b8b64ecde0b5aa1749f8c
+        networks:
+            - httpnet
+            - databasenet
+        ports:
+            - 8000:8000 #cuidado con cambiar este puerto! se usa hardcoded en plc.py por ejemplo
+
+    front:
+        container_name: front
+        #        depends_on:
+        #            - httpapi
+        restart: unless-stopped
+        build: ./front
+        ports:
+            - 443:443
+
+    invernadero:
+        container_name: invernadero
+        restart: unless-stopped
+        build: ./invernadero
+        networks:
+            - queuenet
+            - httpnet
+        environment:
+            - PYTHONUNBUFFERED=1 # see prints
+            - RABBITMQ_USER=scalameesta
+            - RABBITMQ_PASS=cibertropico
+            - APIUSER=invernadero1@uma.es
+            - APIPASS=PasswordInvernadero1!
+            - APP_KEY_INVERNADERO=f8cd58e96d7b8b64ecde0b5aa1749f8c
+            - API_URL=http://httpapi:8000/
+
+    invernadero-plc:
+        container_name: invernadero-plc
+        restart: unless-stopped
+        build: ./invernadero-plc
+        ports:
+            - 5000:5000
+        networks:
+            - queuenet
+            - httpnet
+        environment:
+            - PYTHONUNBUFFERED=1 # see prints
+            - RABBITMQ_USER=scalameesta
+            - RABBITMQ_PASS=cibertropico
+            - APIUSER=invernadero1@uma.es
+            - APIPASS=PasswordInvernadero1!
+
+    mongodb:
+        container_name: mongodb
+        image: mongo
+        command: [ --auth ]
+        environment:
+            - MONGO_INITDB_ROOT_USERNAME=userAdmin
+            - MONGO_INITDB_ROOT_PASSWORD=userPassword
+        networks:
+            - databasenet
+        ports:
+            - 27017:27017
+        volumes:
+            - mongodata:/data/db
+
+    rabbitmq:
+        image: rabbitmq:3-management-alpine
+        container_name: 'rabbitmq'
+        hostname: 'rabbitmq'
+        restart: unless-stopped
+        volumes:
+            - rabbitmqvolume:/var/lib/rabbitmq
+            - ./rabbitmq/rabbitmq.config:/etc/rabbitmq/rabbitmq.config
+            - ./rabbitmq/definitions.json:/etc/rabbitmq/rabbitmq-defs.json
+        networks:
+            queuenet:
+                ipv4_address: 172.5.0.6
+        ports:
+            - 15672:15672
+        environment:
+            RABBITMQ_DEFAULT_USER: scalameesta
+            RABBITMQ_DEFAULT_PASS: cibertropico
+
+volumes:
+    mongodata:
+
+    rabbitmqvolume:
